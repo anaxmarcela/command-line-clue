@@ -36,7 +36,7 @@ structure = {
     },
     "cafe": {}
   },
-  "houses": {
+  "Residential Area": {
     "mansion": {
       "library": {
         "study": {}
@@ -109,6 +109,19 @@ class MysteryGame:
       return paths
     return get_paths(structure)
 
+  def _get_leaf_rooms(self):
+    """Gets only room paths that have no subdirectories."""
+    def get_leafs(structure, current_path=""):
+        leafs = []
+        for name, substructure in structure.items():
+            new_path = f"{current_path}/{name}" if current_path else name
+            if not substructure:
+                leafs.append(new_path)
+            else:
+                leafs.extend(get_leafs(substructure, new_path))
+        return leafs
+    return get_leafs(structure)
+
   def generate_mystery(self, num_suspects=6, num_weapons=6):
     """
     Generates all elements of our mystery game.
@@ -135,7 +148,10 @@ class MysteryGame:
     # Choose our answers
     self.guilty_suspect = random.choice(self.suspects)
     self.murder_weapon = random.choice(self.weapons)
-    self.murder_location = random.choice(self.all_rooms)
+    
+    # NEW: Ensure murder location is a specific room (leaf node)
+    leaf_rooms = self._get_leaf_rooms()
+    self.murder_location = random.choice(leaf_rooms)
 
     # Remove answers from distribution pools
     available_suspects = [s for s in self.suspects if s != self.guilty_suspect]
@@ -245,6 +261,68 @@ Location of the crime is still unknown - the room must have been empty when it h
           create_directories(new_path, substructure)
 
     create_directories(base_dir, structure)
+
+  def create_accuse_script(self):
+    """Generates the 'accuse.py' script for checking the solution."""
+    import hashlib
+    
+    # Simple hashing to prevent accidental spoilers if they cat the script
+    def get_hash(s):
+        return hashlib.md5(s.lower().strip().encode()).hexdigest()
+
+    suspect_hash = get_hash(self.guilty_suspect)
+    weapon_hash = get_hash(self.murder_weapon)
+    location_hash = get_hash(self.murder_location) # Full path e.g. "town hall/offices"
+    location_name_hash = get_hash(self.murder_location.split('/')[-1]) # Just the room name
+
+    script_content = f'''#!/usr/bin/env python3
+import sys
+import hashlib
+
+def get_hash(s):
+    return hashlib.md5(s.lower().strip().encode()).hexdigest()
+
+EXPECTED_SUSPECT = "{suspect_hash}"
+EXPECTED_WEAPON = "{weapon_hash}"
+# We accept either the full path or just the room name
+EXPECTED_LOCATION_HASHES = ["{location_hash}", "{location_name_hash}"]
+
+def print_usage():
+    print("Usage: python3 accuse.py \\"<Suspect Name>\\" \\"<Weapon Name>\\" \\"<Room Name>\\"")
+    print("Example: python3 accuse.py \\"The Gardener\\" \\"Garden Shears\\" \\"Garden\\"")
+    print("Don't forget the quotes if the name has spaces!")
+
+if len(sys.argv) != 4:
+    print("❌ Error: You need to provide exactly 3 arguments.")
+    print_usage()
+    sys.exit(1)
+
+suspect = sys.argv[1]
+weapon = sys.argv[2]
+location = sys.argv[3]
+
+suspect_match = get_hash(suspect) == EXPECTED_SUSPECT
+weapon_match = get_hash(weapon) == EXPECTED_WEAPON
+location_match = get_hash(location) in EXPECTED_LOCATION_HASHES
+
+if suspect_match and weapon_match and location_match:
+    print("\\n🎉 CONGRATULATIONS DETECTIVE! 🎉")
+    print("You have correctly identified the killer, the weapon, and the location!")
+    print(f"It was {{suspect}} with the {{weapon}} in the {{location}}.")
+    print("The town is safe once again thanks to your command line skills.")
+    sys.exit(0)
+else:
+    print("\\nYour accusation is incorrect:")
+    print(f"Suspect:  {{'✅ Correct' if suspect_match else '❌ Incorrect'}}")
+    print(f"Weapon:   {{'✅ Correct' if weapon_match else '❌ Incorrect'}}")
+    print(f"Location: {{'✅ Correct' if location_match else '❌ Incorrect'}}")
+    print("\\nKeep investigating!")
+    sys.exit(1)
+'''
+    
+    accuse_path = Path("game/accuse.py")
+    with open(accuse_path, "w") as f:
+        f.write(script_content)
 
   def check_lateral_path(self, current_segments, next_segments):
     if len(current_segments) != len(next_segments):
@@ -497,5 +575,6 @@ if __name__ == "__main__":
   game.generate_mystery(3, 3)
   game.create_game_directories()
   game.create_breadcrumbs()
+  game.create_accuse_script()
   print("Your mystery game has been generated!")
   print("use `cd game` and begin investigating.")
